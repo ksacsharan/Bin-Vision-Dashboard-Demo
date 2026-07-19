@@ -217,6 +217,10 @@
         <select id="areaFilter"><option value="__all">All sites</option></select>
       </div>
       <div class="slicer">
+        <span class="slicer-label">Project</span>
+        <select id="projectFilter"><option value="__all">All projects</option></select>
+      </div>
+      <div class="slicer">
         <span class="slicer-label">Stream</span>
         <select id="streamFilter"><option value="__all">All streams</option></select>
       </div>
@@ -452,7 +456,7 @@ const state = {
   lines: [],              // enriched material lines (one per material per audit)
   catalogue: new Map(),   // lowercased name -> catalogue row
   filters: {
-    auditId:'__all', area:'__all', stream:'__all', auditor:'__all',
+    auditId:'__all', area:'__all', project:'__all', stream:'__all', auditor:'__all',
     unit:'kg', confirmedOnly:false, includeExcluded:false,
   },
   streamTab: '__all',
@@ -524,6 +528,10 @@ function normAuditor(name){
   const t = (name || '').trim();
   if (!t) return 'Unknown';
   return AUDITOR_ALIASES[t.toLowerCase()] || t;
+}
+function normProject(a){
+  const p = (a.Project || '').trim();
+  return p && p.toLowerCase() !== 'null' ? p : '(No project)';
 }
 function normArea(a){
   let s = (a.area || '').trim();
@@ -601,6 +609,7 @@ function auditPassesFilters(a){
   if (!f.includeExcluded && isExcludedByDefault(a)) return false;
   if (f.auditId !== '__all' && a.id !== f.auditId) return false;
   if (f.area !== '__all' && normArea(a) !== f.area) return false;
+  if (f.project !== '__all' && normProject(a) !== f.project) return false;
   if (f.stream !== '__all' && (BIN_STREAM[a.bin_type] || '—') !== f.stream) return false;
   if (f.auditor !== '__all' && normAuditor(a.auditor_name) !== f.auditor) return false;
   return true;
@@ -627,7 +636,7 @@ async function fetchAll(){
       .from('audits')
       .select(`
         id, location, area, bin_type, bin_size, fullness_percentage,
-        audit_date, auditor_name, status, setup, archived_at,
+        audit_date, auditor_name, status, setup, archived_at, Project,
         latitude, longitude, created_at, number_of_auditors,
         ai_results (
           contamination_percentage, ai_confidence, summary, observations, confirmed_at,
@@ -681,6 +690,19 @@ function populateFilterOptions(){
   auditSel.value = sorted.some(a => a.id === prevAudit) ? prevAudit : '__all';
   state.filters.auditId = auditSel.value;
 
+  // Project options from the data; '(No project)' groups audits with a blank Project.
+  const projSel = document.getElementById('projectFilter');
+  const projects = [...new Set(visible.map(normProject))].sort((a,b) => {
+    if (a === '(No project)') return 1;
+    if (b === '(No project)') return -1;
+    return a.localeCompare(b);
+  });
+  const prevProj = state.filters.project;
+  projSel.innerHTML = '<option value="__all">All projects</option>' +
+    projects.map(p => `<option>${escapeHtml(p)}</option>`).join('');
+  projSel.value = projects.includes(prevProj) ? prevProj : '__all';
+  state.filters.project = projSel.value;
+
   // Stream options reflect the data: only streams present among visible audits are listed.
   const present = new Set(visible.map(a => BIN_STREAM[a.bin_type]).filter(Boolean));
   const streams = STREAM_ORDER.filter(s => present.has(s));
@@ -706,6 +728,7 @@ function activeFilterCount(){
   let n = 0;
   if (f.auditId !== '__all') n++;
   if (f.area !== '__all') n++;
+  if (f.project !== '__all') n++;
   if (f.stream !== '__all') n++;
   if (f.auditor !== '__all') n++;
   if (f.confirmedOnly) n++;
@@ -723,7 +746,7 @@ function updateClearBtn(){
 function clearAllFilters(){
   const f = state.filters;
   f.auditId = '__all';
-  f.area = '__all'; f.stream = '__all'; f.auditor = '__all';
+  f.area = '__all'; f.project = '__all'; f.stream = '__all'; f.auditor = '__all';
   f.confirmedOnly = false;
   state.streamTab = '__all';
   state.classFocus = null;
@@ -731,6 +754,7 @@ function clearAllFilters(){
   // they change the basis/scope of the view, not a narrowing filter.
   document.getElementById('auditFilter').value = '__all';
   document.getElementById('areaFilter').value = '__all';
+  document.getElementById('projectFilter').value = '__all';
   document.getElementById('streamFilter').value = '__all';
   document.getElementById('auditorFilter').value = '__all';
   document.getElementById('confirmedOnlyChk').checked = false;
@@ -1347,6 +1371,7 @@ function init(){
   on('autoRefreshChk','change', setupAutoRefresh);
   on('auditFilter','change', e => { f.auditId = e.target.value; renderAll(); });
   on('areaFilter','change', e => { f.area = e.target.value; renderAll(); });
+  on('projectFilter','change', e => { f.project = e.target.value; renderAll(); });
   on('streamFilter','change', e => { f.stream = e.target.value; renderAll(); });
   on('auditorFilter','change', e => { f.auditor = e.target.value; renderAll(); });
   on('confirmedOnlyChk','change', e => { f.confirmedOnly = e.target.checked; renderAll(); });
