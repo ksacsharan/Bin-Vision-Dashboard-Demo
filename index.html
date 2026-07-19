@@ -209,16 +209,16 @@
 
     <div class="slicers">
       <div class="slicer">
+        <span class="slicer-label">Project</span>
+        <select id="projectFilter"><option value="__all">All projects</option></select>
+      </div>
+      <div class="slicer">
         <span class="slicer-label">Audit</span>
         <select id="auditFilter" style="max-width:360px;"><option value="__all">All audits</option></select>
       </div>
       <div class="slicer">
         <span class="slicer-label">Site / area</span>
         <select id="areaFilter"><option value="__all">All sites</option></select>
-      </div>
-      <div class="slicer">
-        <span class="slicer-label">Project</span>
-        <select id="projectFilter"><option value="__all">All projects</option></select>
       </div>
       <div class="slicer">
         <span class="slicer-label">Stream</span>
@@ -683,7 +683,11 @@ function populateFilterOptions(){
   const auditSel = document.getElementById('auditFilter');
   const streamSel = document.getElementById('streamFilter');
   const visible = state.allAudits.filter(a => state.filters.includeExcluded || !isExcludedByDefault(a));
-  const sorted = [...visible].sort((x,y) => String(y.audit_date||'').localeCompare(String(x.audit_date||'')));
+  // Project is the top-level filter: every other slicer's options cascade from it.
+  const scoped = state.filters.project === '__all'
+    ? visible
+    : visible.filter(a => normProject(a) === state.filters.project);
+  const sorted = [...scoped].sort((x,y) => String(y.audit_date||'').localeCompare(String(x.audit_date||'')));
   const prevAudit = state.filters.auditId;
   auditSel.innerHTML = '<option value="__all">All audits</option>' +
     sorted.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(auditOptionLabel(a))}</option>`).join('');
@@ -704,15 +708,15 @@ function populateFilterOptions(){
   state.filters.project = projSel.value;
 
   // Stream options reflect the data: only streams present among visible audits are listed.
-  const present = new Set(visible.map(a => BIN_STREAM[a.bin_type]).filter(Boolean));
+  const present = new Set(scoped.map(a => BIN_STREAM[a.bin_type]).filter(Boolean));
   const streams = STREAM_ORDER.filter(s => present.has(s));
   const prevStream = state.filters.stream;
   streamSel.innerHTML = '<option value="__all">All streams</option>' +
     streams.map(s => `<option>${escapeHtml(s)}</option>`).join('');
   streamSel.value = streams.includes(prevStream) ? prevStream : '__all';
   state.filters.stream = streamSel.value;
-  const areas = [...new Set(state.allAudits.filter(a => state.filters.includeExcluded || !isExcludedByDefault(a)).map(normArea))].sort();
-  const auditors = [...new Set(state.allAudits.filter(a => state.filters.includeExcluded || !isExcludedByDefault(a)).map(a => normAuditor(a.auditor_name)))].sort();
+  const areas = [...new Set(scoped.map(normArea))].sort();
+  const auditors = [...new Set(scoped.map(a => normAuditor(a.auditor_name)))].sort();
   const prevArea = state.filters.area, prevAud = state.filters.auditor;
   areaSel.innerHTML = '<option value="__all">All sites</option>' + areas.map(a => `<option>${escapeHtml(a)}</option>`).join('');
   audSel.innerHTML = '<option value="__all">All auditors</option>' + auditors.map(a => `<option>${escapeHtml(a)}</option>`).join('');
@@ -759,6 +763,7 @@ function clearAllFilters(){
   document.getElementById('auditorFilter').value = '__all';
   document.getElementById('confirmedOnlyChk').checked = false;
   document.getElementById('tableSearch').value = '';
+  populateFilterOptions();
   renderAll();
 }
 
@@ -1371,7 +1376,7 @@ function init(){
   on('autoRefreshChk','change', setupAutoRefresh);
   on('auditFilter','change', e => { f.auditId = e.target.value; renderAll(); });
   on('areaFilter','change', e => { f.area = e.target.value; renderAll(); });
-  on('projectFilter','change', e => { f.project = e.target.value; renderAll(); });
+  on('projectFilter','change', e => { f.project = e.target.value; populateFilterOptions(); renderAll(); });
   on('streamFilter','change', e => { f.stream = e.target.value; renderAll(); });
   on('auditorFilter','change', e => { f.auditor = e.target.value; renderAll(); });
   on('confirmedOnlyChk','change', e => { f.confirmedOnly = e.target.checked; renderAll(); });
