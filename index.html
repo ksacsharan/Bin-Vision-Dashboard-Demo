@@ -43,8 +43,6 @@
   .side-nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;}
   .side-nav li{padding:9px 10px;border-radius:4px;font-size:13px;color:rgba(234,237,231,.72);cursor:default;}
   .side-nav li.active{background:rgba(234,237,231,.1);color:#fff;}
-  .side-nav li.disabled{cursor:not-allowed;pointer-events:none;color:rgba(234,237,231,.38);}
-  .beta-tag{font-size:10px;letter-spacing:.04em;color:rgba(234,237,231,.5);}
   .side-spacer{flex:1;}
   .side-note{font-size:10.5px;color:rgba(234,237,231,.4);line-height:1.5;}
 
@@ -195,9 +193,9 @@
     <div class="brand-sub">Bin Audit Operations</div>
     <ul class="side-nav">
       <li class="active">Report</li>
-      <li class="disabled">Audits <span class="beta-tag">(beta)</span></li>
-      <li class="disabled">Materials <span class="beta-tag">(beta)</span></li>
-      <li class="disabled">Locations <span class="beta-tag">(beta)</span></li>
+      <li>Audits (beta)</li>
+      <li>Materials (beta)</li>
+      <li>Locations (beta)</li>
     </ul>
     <div class="side-spacer"></div>
     <div class="side-note">
@@ -252,9 +250,7 @@
       </div>
     </div>
     </div>
-    <div class="coverage-note" id="coverageNote" style="margin-top:10px;"></div>
-
-    <div class="kpi-grid">
+        <div class="kpi-grid">
       <div class="kpi-card c-green">
         <div class="kpi-label">Total waste audited</div>
         <div class="kpi-value" id="kpiTotalWaste">—</div>
@@ -268,7 +264,7 @@
       <div class="kpi-card c-amber">
         <div class="kpi-label">Potential recovery rate</div>
         <div class="kpi-value" id="kpiPotentialRate">—</div>
-        <div class="kpi-sub">if correctly sorted</div>
+        <div class="kpi-sub">if full bin setup available</div>
       </div>
       <div class="kpi-card c-red">
         <div class="kpi-label">Number of audits</div>
@@ -276,9 +272,9 @@
         <div class="kpi-sub" id="kpiAuditCountSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-blue">
-        <div class="kpi-label">Missed CDS containers</div>
+        <div class="kpi-label">MR - Contamination rate</div>
         <div class="kpi-value" id="kpiCds">—</div>
-        <div class="kpi-sub">refundable, found in other bins</div>
+        <div class="kpi-sub">General waste &amp; food waste incorrectly disposed</div>
       </div>
       <div class="kpi-card c-violet">
         <div class="kpi-label">Recyclables lost to general waste</div>
@@ -289,12 +285,8 @@
 
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title" id="breakdownTitle">Contamination</div>
+        <div class="panel-title">Material Pathways</div>
         <div class="panel-note" id="breakdownNote"></div>
-      </div>
-      <div class="unit-toggle" id="panelViewToggle" style="margin-bottom:10px;">
-        <button id="viewContam" class="active">Contamination</button>
-        <button id="viewRecyc">Recyclability</button>
       </div>
       <div class="stream-tabs" id="streamTabs"></div>
       <div class="breakdown-layout">
@@ -312,8 +304,8 @@
     <div class="panel-row">
       <div class="panel">
         <div class="panel-header">
-          <div class="panel-title">Site leaderboard — contamination rate</div>
-          <div class="panel-note">Recycling streams only · click a bar to filter by site</div>
+          <div class="panel-title">Incorrect Disposal</div>
+          <div class="panel-note" id="incorrectDisposalNote">General Waste vs Mixed Recycling · per material_catalogue.stream_setup1 · click a bar for materials</div>
         </div>
         <div id="siteChart" class="chart chart-med"></div>
       </div>
@@ -427,7 +419,6 @@ const CLASS_META = {
   recoverable_gw: { label:'Recyclables in general waste', color:'#2F8577', order:4 },
   unclassified:   { label:'Unclassified',            color:'#9AA097', order:6 },
 };
-const CONTAM_CLASSES = ['landfill','cross_stream','cds_missed'];
 
 const COLOR = {
   ink:'#1E2420', inkSoft:'rgba(30,36,32,.6)', line:'rgba(30,36,32,.13)',
@@ -437,13 +428,135 @@ const COLOR = {
 };
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* Category colors for sankey / modal pie */
+/* ===== Official waste-stream identity colors (client-specified) ===== */
+const STREAM_COLORS = {
+  'Mixed Recycling':   '#F2C94C',  // yellow
+  'Paper & Cardboard': '#2F80ED',  // blue
+  'Organics':          '#27AE60', // green
+  'General Waste':     '#EB5757', // red — "Landfill / general waste"
+  'CDS':               '#9B51E0', // purple
+};
+function streamColor(name){ return STREAM_COLORS[name] || COLOR.grey; }
+
+/* ===== Material Pathways matrix — bin-vision-material-pathways-logic.md ===== */
+/* Pure lookup: MATERIAL_MATRIX[material][binFound] -> 0..3. No inference. */
+const MATERIAL_MATRIX = {
+  "Aluminium Cans": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 0, "CDS": 3, "Organics": 0},
+  "Glass Bottles": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 0, "CDS": 3, "Organics": 0},
+  "Coffee Cups (Disposable)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Disposable Cold Cups": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Other Composite Packaging (Multilayer)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Takeaway Containers (Composite)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Ice cream Cups (Disposable)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Compostable Biopack": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Compostable Packaging": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Paper Straws": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Tissue Paper (Dry)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Tissue Paper (Wet)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Batteries": {"General Waste": 0, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "E-Waste": {"General Waste": 0, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Other Glass": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Wine and Spirits Bottles": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Light Bulbs": {"General Waste": 0, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Aluminium (Other)": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Steel Bottles and Containers": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Steel Tins and Cans": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Food Waste": {"General Waste": 1, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 3},
+  "Liquids": {"General Waste": 1, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 3},
+  "Other Organic Waste": {"General Waste": 1, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 3},
+  "Nappies and Sanitary Items": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "PPE": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Stationery and Office Supplies": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Unknown / Unidentified": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Books": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Cardboard (Dry)": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Cardboard (Wet / Contaminated)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Liquid Paperboard / Tetra Pak": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Magazines and Catalogues": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Newspapers": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Paper": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Waxy or Coated Cardboard": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Pizza Boxes": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Paper bags": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
+  "Paper Towels and Serviettes": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "HDPE (Type 2)": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Other Flexible Plastics": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Other Rigid Plastics": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "PET (Type 1)": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Plastic Bottles (PET)": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 0, "CDS": 3, "Organics": 0},
+  "Plastic Cutlery and Straws": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Plastic Lids and Caps": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "PP (Type 5)": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Clear Soft Plastic": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Coloured Soft Plastic": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Textiles and Clothing": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Wood": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Wooden Cutlery": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0}
+};
+// audits.bin_type -> exact matrix bin-key (note matrix casing: "Mixed recycling", "Paper & cardboard")
+const MATRIX_BIN_KEY = {
+  general_waste: 'General Waste', mixed_recycling: 'Mixed recycling', recycling: 'Mixed recycling',
+  paper_cardboard: 'Paper & cardboard', cds: 'CDS', organics: 'Organics',
+};
+// matrix bin-key -> display stream name (for STREAM_COLORS / UI labels)
+const MATRIX_TO_DISPLAY_STREAM = {
+  'General Waste':'General Waste', 'Mixed recycling':'Mixed Recycling',
+  'Paper & cardboard':'Paper & Cardboard', 'CDS':'CDS', 'Organics':'Organics',
+};
+function classifyItem(material, binFound){
+  const row = MATERIAL_MATRIX[material];
+  if (!row || !(binFound in row)) return null; // unknown material/bin -> flag for review
+  const v = row[binFound];
+  return (v >= 0 && v <= 3) ? v : null;
+}
+function bestAvailableStream(material){
+  const row = MATERIAL_MATRIX[material];
+  if (!row) return undefined; // unknown material
+  for (const b of ['General Waste','Mixed recycling','Paper & cardboard','CDS','Organics']) {
+    if (row[b] === 3) return b;
+  }
+  return null; // no bin scores 3 -> Special disposal (Batteries, E-Waste, Light Bulbs)
+}
+const PATHWAY_META = {
+  '0': { label:'Contamination',       color:'#EB5757', order:1 },
+  '1': { label:'Lost Recycling',      color:'#F2994A', order:2 },
+  '2': { label:'Suboptimal Stream',   color:'#56CCF2', order:3 },
+  '3': { label:'Best Available Option', color:'#27AE60', order:4 },
+  'unclassified': { label:'Unclassified', color:'#9AA097', order:5 },
+};
+// The 5 destination tiles (Setup 2 fixed) — restored per client request, recoloured to the
+// official stream palette. Independent of the Material Pathways donut above (matrix-based).
+const DEST_TILES = [
+  { key:'Mixed Recycling',   label:'Mixed Recycling',   color: STREAM_COLORS['Mixed Recycling'] },
+  { key:'CDS',               label:'CDS',               color: STREAM_COLORS['CDS'] },
+  { key:'Paper & Cardboard', label:'Paper & Cardboard', color: STREAM_COLORS['Paper & Cardboard'] },
+  { key:'Organics',          label:'Organics',          color: STREAM_COLORS['Organics'] },
+  { key:'General Waste',     label:'Landfill',          color: STREAM_COLORS['General Waste'] },
+];
+function pathwayGroupOf(l){
+  return (l.pathwayValue === null || l.pathwayValue === undefined) ? 'unclassified' : String(l.pathwayValue);
+}
+function bestStreamLabel(l){
+  if (l.bestStream === undefined) return 'Unknown material';
+  if (l.bestStream === null) return 'Special disposal';
+  return MATRIX_TO_DISPLAY_STREAM[l.bestStream] || l.bestStream;
+}
+function bestStreamColor(l){
+  if (l.bestStream === undefined || l.bestStream === null) return COLOR.grey;
+  return streamColor(MATRIX_TO_DISPLAY_STREAM[l.bestStream]);
+}
+
+/* Category colors for sankey / modal pie (material_catalogue.category — a different
+   dimension from the 5 waste streams above, but aligned where names coincide). */
 const CATEGORY_COLOR_MAP = {
-  'landfill / general waste': COLOR.red, 'landfill': COLOR.red, 'general waste': COLOR.red, 'general': COLOR.red,
-  'recycling': COLOR.amber, 'organics': COLOR.green, 'glass': COLOR.violet,
-  'paper & cardboard': '#3B6E8F', 'paper and cardboard': '#3B6E8F', 'paper': '#3B6E8F', 'cardboard': '#3B6E8F',
+  'landfill / general waste': STREAM_COLORS['General Waste'], 'landfill': STREAM_COLORS['General Waste'],
+  'general waste': STREAM_COLORS['General Waste'], 'general': STREAM_COLORS['General Waste'],
+  'recycling': STREAM_COLORS['Mixed Recycling'], 'mixed recycling': STREAM_COLORS['Mixed Recycling'],
+  'organics': STREAM_COLORS['Organics'], 'glass': COLOR.violet,
+  'paper & cardboard': STREAM_COLORS['Paper & Cardboard'], 'paper and cardboard': STREAM_COLORS['Paper & Cardboard'],
+  'paper': STREAM_COLORS['Paper & Cardboard'], 'cardboard': STREAM_COLORS['Paper & Cardboard'],
   'plastics': '#2F8577', 'soft plastics': '#5FA89C', 'metals': '#5B7480',
-  'composites': '#8C6D4F', 'cds': '#C1662F', 'hazardous': '#A6325B',
+  'composites': '#8C6D4F', 'cds': STREAM_COLORS['CDS'], 'hazardous': '#A6325B',
   'compostable packaging': '#7A9B4E', 'other': COLOR.grey,
   'uncategorised': COLOR.grey, 'uncategorized': COLOR.grey,
 };
@@ -466,10 +579,10 @@ const state = {
   catalogue: new Map(),   // lowercased name -> catalogue row
   filters: {
     auditId:'__all', area:'__all', project:'__all', stream:'__all', auditor:'__all',
-    unit:'kg', confirmedOnly:false, includeExcluded:false,
+    unit:'kg', confirmedOnly:false, includeExcluded:false,  // controls removed from UI; hygiene filter stays on
   },
   streamTab: '__all',
-  panelView: 'contamination',   // 'contamination' (Setup 1) | 'recyclability' (Setup 2)
+  incorrectDrill: null,   // null = level 1 (GW/MR bars) | 'General Waste' | 'Mixed Recycling' = level 2 (materials)
   classFocus: null,       // donut segment focus for material list
   charts: {},
   leafletMap: null, leafletLayer: null,
@@ -493,10 +606,11 @@ function getAiResult(audit){
   if (!r) return null;
   return Array.isArray(r) ? (r[0] || null) : r;
 }
-function setStatus(kind, text){
+function setStatus(kind, text, detail){
   const pill = document.getElementById('statusPill');
   pill.className = 'status-pill ' + kind;
   document.getElementById('statusText').textContent = text;
+  pill.title = detail || '';
 }
 function setSynced(){ const d = new Date(); document.getElementById('syncedText').textContent = 'Synced ' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
 function sectionError(containerId, tableName){
@@ -600,9 +714,13 @@ function buildLines(){
       const matL = volL !== null ? volL * m.percentage / 100 : null;
       const kg = (matL !== null && density) ? matL * density / 1000 : null;
       const normDest = d => (!d || d === 'None' || d === 'null') ? null : d;
+      const matrixBin = MATRIX_BIN_KEY[a.bin_type] || null;
       lines.push({
-        dest1: normDest(c ? c.stream_setup1 : null),   // fixed Setup 1 (contamination view)
-        dest2: normDest(c ? c.stream_setup2 : null),   // fixed Setup 2 (recyclability view)
+        dest1: normDest(c ? c.stream_setup1 : null),   // fixed Setup 1 (legacy MRF/recovery KPIs)
+        dest1Known: !!c,   // true only if the material matched material_catalogue at all
+        dest2: normDest(c ? c.stream_setup2 : null),   // fixed Setup 2 (legacy, superseded by matrix)
+        pathwayValue: matrixBin ? classifyItem(m.material_name, matrixBin) : null,  // 0-3, Material Pathways
+        bestStream: bestAvailableStream(m.material_name), // matrix bin-key | null (special disposal) | undefined (unknown material)
         audit: a,
         stream,
         material: m.material_name,
@@ -683,9 +801,8 @@ async function fetchAll(){
     renderAll();
   } catch (err) {
     console.error(err);
-    setStatus('err', 'Connection error');
-    document.getElementById('coverageNote').textContent =
-      (err && err.message) ? err.message : 'Could not reach Supabase. Check URL/key and RLS policies.';
+    setStatus('err', 'Connection error',
+      (err && err.message) ? err.message : 'Could not reach Supabase. Check URL/key and RLS policies.');
   }
 }
 
@@ -761,8 +878,9 @@ function activeFilterCount(){
   if (f.stream !== '__all') n++;
   if (f.auditor !== '__all') n++;
   if (f.confirmedOnly) n++;
-  if (state.panelView !== 'contamination' && state.streamTab !== '__all') n++;
+  if (state.streamTab !== '__all') n++;
   if (state.classFocus) n++;
+  if (state.incorrectDrill !== null) n++;
   if ((document.getElementById('tableSearch').value || '').trim()) n++;
   return n;
 }
@@ -779,6 +897,7 @@ function clearAllFilters(){
   f.confirmedOnly = false;
   state.streamTab = '__all';
   state.classFocus = null;
+  state.incorrectDrill = null;
   // note: unit (kg/L) and the drafts/test toggle are deliberately NOT reset —
   // they change the basis/scope of the view, not a narrowing filter.
   document.getElementById('auditFilter').value = '__all';
@@ -795,7 +914,6 @@ function clearAllFilters(){
 function renderAll(){
   const lines = getFilteredLines();
   const audits = getFilteredAudits();
-  renderCoverage(audits, lines);
   updateClearBtn();
   renderKPIs(lines, audits);
   renderStreamTabs(lines);
@@ -805,15 +923,6 @@ function renderAll(){
   renderMap(audits, lines);
   renderSankey(lines);
   renderTable(audits);
-}
-
-function renderCoverage(audits, lines){
-  const excluded = state.allAudits.filter(a => isExcludedByDefault(a)).length;
-  const weighable = new Set(lines.filter(l => l.kg !== null).map(l => l.audit.id)).size;
-  const withAi = new Set(lines.map(l => l.audit.id)).size;
-  let note = `${audits.length} audits in view · ${withAi} with AI material data · ${weighable} weighable`;
-  if (!state.filters.includeExcluded && excluded) note += ` · ${excluded} drafts/test audits hidden`;
-  document.getElementById('coverageNote').textContent = note;
 }
 
 /* ---------- KPIs ---------- */
@@ -836,8 +945,11 @@ function renderKPIs(lines, audits){
   let recycledKg = 0, recycledL = 0;
   lines.forEach(l => { if (isRecycled1(l)) { recycledKg += (l.kg ?? 0); recycledL += (l.litres ?? 0); } });
 
-  const cdsMissed = sumBy(lines, l => l.klass === 'cds_missed');
-  const recoverableGw = sumBy(lines, l => l.klass === 'recoverable_gw');
+  // Material Pathways (matrix-based): MR contamination rate (value 0 in Mixed Recycling),
+  // and Lost Recycling (value 1, anywhere) as a share of ALL audited material.
+  const mrTotal = sumBy(lines, l => l.stream === 'Mixed Recycling');
+  const mrContam = sumBy(lines, l => l.stream === 'Mixed Recycling' && l.pathwayValue === 0);
+  const lostRecyclingTotal = sumBy(lines, l => l.pathwayValue === 1);
 
   document.getElementById('kpiTotalWaste').textContent = fmt(state.filters.unit === 'kg' ? totalKg : totalL) + ' ' + u;
   document.getElementById('kpiTotalWasteSub').textContent =
@@ -852,48 +964,19 @@ function renderKPIs(lines, audits){
   document.getElementById('kpiAuditCount').textContent = audits.length;
   document.getElementById('kpiAuditCountSub').textContent = `${withAiData} with AI material data`;
 
-  document.getElementById('kpiCds').textContent = fmt(cdsMissed) + ' ' + u;
-  document.getElementById('kpiRecoverable').textContent = fmt(recoverableGw) + ' ' + u;
-  document.getElementById('kpiRecoverableSub').textContent = 'recoverable if diverted';
+  document.getElementById('kpiCds').textContent = mrTotal ? fmtPct(100*mrContam/mrTotal,1) : '—';
+  document.getElementById('kpiRecoverable').textContent = total ? fmtPct(100*lostRecyclingTotal/total,1) : '—';
+  document.getElementById('kpiRecoverableSub').textContent = fmt(lostRecyclingTotal) + ' ' + u;
 }
 
-/* ---------- panel views: Contamination (Setup 1) / Recyclability (Setup 2) ---------- */
-const DEST_TILES = [
-  { key:'Mixed Recycling',   label:'Mixed Recycling',   color:'#E0A400' },
-  { key:'CDS',               label:'CDS',               color:'#3B6E8F' },
-  { key:'Paper & Cardboard', label:'Paper & Cardboard', color:'#8C6D4F' },
-  { key:'Organics',          label:'Organics',          color:'#3F6B34' },
-  { key:'General Waste',     label:'Landfill',          color:'#C82C2C' },
-];
-const CONTAM_META = {
-  contam:       { label:'Contamination', color:'#C82C2C' },
-  correct:      { label:'Correct',       color:'#3F6B34' },
-  unclassified: { label:'Unclassified',  color:'#9AA097' },
-};
-function lineDest(l){ return state.panelView === 'contamination' ? l.dest1 : l.dest2; }
-function contamClassOf(l){
-  if (!l.dest1) return 'unclassified';
-  return l.dest1 === l.stream ? 'correct' : 'contam';
-}
-function panelGroupOf(l){
-  return state.panelView === 'contamination' ? contamClassOf(l) : (lineDest(l) || 'Unclassified');
-}
-function panelGroupMeta(key){
-  if (state.panelView === 'contamination') return CONTAM_META[key] || { label:key, color:'#9AA097' };
-  if (key === 'Unclassified') return { label:'Unclassified', color:'#9AA097' };
-  const d = DEST_TILES.find(t => t.key === key);
-  return d ? { label:d.label, color:d.color } : { label:key, color:'#9AA097' };
-}
-
+/* ---------- Material Pathways panel (single view, matrix-based) ---------- */
 function renderStreamTabs(lines){
   const tabsEl = document.getElementById('streamTabs');
   const present = [...new Set(lines.map(l => l.stream))];
   const order = ['General Waste','Mixed Recycling','Paper & Cardboard','CDS'];
   const streams = order.filter(s => present.includes(s));
-  // The Contamination view has no "All" tab: correctness is judged per bin type, and in a
-  // combined view one material can be correct and contamination at once (client call).
-  const tabs = state.panelView === 'contamination' ? streams : ['__all', ...streams];
-  if (!tabs.includes(state.streamTab)) state.streamTab = tabs[0] || '__all';
+  const tabs = ['__all', ...streams];
+  if (!tabs.includes(state.streamTab)) state.streamTab = '__all';
   tabsEl.innerHTML = tabs.map(t =>
     `<button class="stream-tab ${state.streamTab===t?'active':''}" data-tab="${escapeHtml(t)}">${t==='__all'?'All':escapeHtml(t)}</button>`
   ).join('');
@@ -908,18 +991,6 @@ function renderStreamTabs(lines){
   });
 }
 
-function setPanelView(v){
-  if (state.panelView === v) return;
-  state.panelView = v;
-  state.classFocus = null;
-  document.getElementById('viewContam').classList.toggle('active', v === 'contamination');
-  document.getElementById('viewRecyc').classList.toggle('active', v === 'recyclability');
-  const lines = getFilteredLines();
-  renderStreamTabs(lines);
-  renderBreakdown(lines);
-  updateClearBtn();
-}
-
 function tabLines(lines){
   return state.streamTab === '__all' ? lines : lines.filter(l => l.stream === state.streamTab);
 }
@@ -927,18 +998,15 @@ function tabLines(lines){
 function renderBreakdown(lines){
   const tl = tabLines(lines);
   const u = unitLabel();
-  const isContam = state.panelView === 'contamination';
 
-  document.getElementById('breakdownTitle').textContent = isContam ? 'Contamination' : 'Recyclability';
-  document.getElementById('breakdownNote').textContent = isContam
-    ? 'Right thing in the right bin? Judged against Setup 1 · click a donut segment to focus the material list'
-    : 'Theoretical destination of the audited contents per Setup 2 — not a correctness measure · click a donut segment to focus the material list';
+  document.getElementById('breakdownNote').textContent =
+    'Every audited item classified by material + bin found, per the Material Pathways matrix · click a donut segment to see materials and their best available stream';
 
   const donutEl = document.getElementById('classDonut');
   if (!state.charts.donut) state.charts.donut = echarts.init(donutEl);
 
   const byGroup = {};
-  tl.forEach(l => { const g = panelGroupOf(l); byGroup[g] = (byGroup[g] || 0) + lineValue(l); });
+  tl.forEach(l => { const g = pathwayGroupOf(l); byGroup[g] = (byGroup[g] || 0) + lineValue(l); });
   const total = Object.values(byGroup).reduce((a,b)=>a+b, 0);
 
   if (!tl.length) {
@@ -949,12 +1017,9 @@ function renderBreakdown(lines){
     return;
   }
 
-  const orderKeys = isContam
-    ? ['contam','correct','unclassified'].filter(k => byGroup[k])
-    : [...DEST_TILES.map(d => d.key), 'Unclassified'].filter(k => byGroup[k]);
-
+  const orderKeys = ['0','1','2','3','unclassified'].filter(k => byGroup[k]);
   const donutData = orderKeys.map(k => {
-    const meta = panelGroupMeta(k);
+    const meta = PATHWAY_META[k];
     return { name: meta.label, value: Math.round(byGroup[k]*100)/100, gkey: k, itemStyle: { color: meta.color } };
   });
 
@@ -985,20 +1050,20 @@ ${tabLabel}`,
   /* legend with shares */
   document.getElementById('classLegend').innerHTML = donutData.map(d => {
     const share = total ? (100*d.value/total) : 0;
-    const focus = state.classFocus && state.classFocus === d.gkey;
+    const focus = state.classFocus === d.gkey;
     return `<div class="legend-row" style="${focus?'font-weight:700;':''}">
       <span class="swatch" style="background:${d.itemStyle.color}"></span>${escapeHtml(d.name)}
       <b>${fmtPct(share, 1)}</b></div>`;
-  }).join('') + (state.classFocus ? `<div class="panel-note" style="margin-top:6px;">Filtering material list: ${escapeHtml(panelGroupMeta(state.classFocus).label)} — click segment again to clear</div>` : '');
+  }).join('') + (state.classFocus !== null ? `<div class="panel-note" style="margin-top:6px;">Filtering material list: ${escapeHtml(PATHWAY_META[state.classFocus].label)} — click segment again to clear</div>` : '');
 
-  /* material bars: colored by the line's dominant group in the active view */
+  /* material bars: colored by dominant pathway; tooltip includes best-available-stream */
   const barsEl = document.getElementById('materialBars');
   if (!state.charts.bars) state.charts.bars = echarts.init(barsEl);
   const byMat = new Map();
   tl.forEach(l => {
-    const g = panelGroupOf(l);
-    if (state.classFocus && g !== state.classFocus) return;
-    if (!byMat.has(l.material)) byMat.set(l.material, { val:0, byGroup:{} });
+    const g = pathwayGroupOf(l);
+    if (state.classFocus !== null && g !== state.classFocus) return;
+    if (!byMat.has(l.material)) byMat.set(l.material, { val:0, byGroup:{}, sample:l });
     const rec = byMat.get(l.material);
     rec.val += lineValue(l);
     rec.byGroup[g] = (rec.byGroup[g] || 0) + lineValue(l);
@@ -1006,7 +1071,7 @@ ${tabLabel}`,
   const rows = [...byMat.entries()]
     .map(([name, rec]) => {
       const domGroup = Object.entries(rec.byGroup).sort((a,b)=>b[1]-a[1])[0][0];
-      return { name, val: rec.val, group: domGroup };
+      return { name, val: rec.val, group: domGroup, sample: rec.sample };
     })
     .sort((a,b)=>b.val-a.val).slice(0, 12).reverse();
 
@@ -1014,26 +1079,30 @@ ${tabLabel}`,
     animation: !prefersReducedMotion,
     tooltip: { trigger:'axis', axisPointer:{ type:'shadow' },
       formatter: ps => ps.map(p => {
+        const r = rows[p.dataIndex];
         const share = total ? fmtPct(100*p.value/total,1) : '—';
-        return `${p.name}<br/>${fmt(p.value)} ${u} · ${share} of ${tabLabel}<br/><i>${panelGroupMeta(rows[p.dataIndex].group).label}</i>`;
+        const bestColor = bestStreamColor(r.sample);
+        return `${p.name}<br/>${fmt(p.value)} ${u} · ${share} of ${tabLabel}<br/><i>${PATHWAY_META[r.group].label}</i>` +
+          `<br/><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${bestColor};margin-right:5px;"></span>Best available: ${escapeHtml(bestStreamLabel(r.sample))}`;
       }).join('') },
     grid:{ left:170, right:70, top:6, bottom:6 },
     xAxis:{ type:'value', axisLabel:{ formatter: v => fmt(v,0) + ' ' + u }, splitLine:{ lineStyle:{ color: COLOR.line } } },
     yAxis:{ type:'category', data: rows.map(r=>r.name), axisLabel:{ fontSize:11, fontFamily:'Inter', width:160, overflow:'truncate' } },
     series:[{
       type:'bar',
-      data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: panelGroupMeta(r.group).color } })),
+      data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: PATHWAY_META[r.group].color } })),
       barMaxWidth:16,
       label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono',
         formatter: p => total ? fmtPct(100*p.value/total,1) : '' },
     }],
   }, true);
 
-  /* tiles: the five Setup destinations (Setup 1 in Contamination view, Setup 2 in Recyclability) */
+  /* tiles: the 5 stream destinations (Setup 2, fixed) — independent of the donut above,
+     per client request to keep these as they were before Material Pathways */
   const kmEl = document.getElementById('keyMetrics');
   kmEl.innerHTML = DEST_TILES.map(t => {
     let v = 0;
-    tl.forEach(l => { if (lineDest(l) === t.key) v += lineValue(l); });
+    tl.forEach(l => { if (l.dest2 === t.key) v += lineValue(l); });
     const pct = total ? 100*v/total : 0;
     return `<div class="key-metric"><div class="km-label">${escapeHtml(t.label)}</div>
       <div class="km-value" style="color:${t.color}">${fmtPct(pct,0)}</div>
@@ -1041,51 +1110,118 @@ ${tabLabel}`,
   }).join('');
 }
 
-/* ---------- site leaderboard ---------- */
+/* ---------- Incorrect Disposal (material_catalogue.stream_setup1, GW/MR only) ---------- */
+// Setup 1 has exactly 3 possible values per material: 'General Waste', 'Mixed Recycling', or
+// None (hazardous, always incorrect). Read live via l.dest1 / l.dest1Known (already populated
+// from material_catalogue on every fetch — no separate query needed).
+// Returns 'correct' | 'incorrect' | null (null = material not in catalogue -> excluded, flagged).
+function incorrectDisposalStatus(l){
+  if (!l.dest1Known) return null;
+  if (l.dest1 === null) return 'incorrect'; // stream_setup1 = None -> incorrect anywhere
+  return (l.dest1 === l.stream) ? 'correct' : 'incorrect';
+}
+
 function renderSiteChart(lines){
   const el = document.getElementById('siteChart');
   if (!state.charts.site) state.charts.site = echarts.init(el);
   const chart = state.charts.site;
+  const noteEl = document.getElementById('incorrectDisposalNote');
   const u = unitLabel();
+  const GW = 'General Waste', MR = 'Mixed Recycling';
 
-  const bySite = new Map();
-  lines.forEach(l => {
-    if (l.stream === 'General Waste') return; // contamination is a recycling-stream concept
-    if (!bySite.has(l.area)) bySite.set(l.area, { total:0, contam:0 });
-    const rec = bySite.get(l.area);
-    rec.total += lineValue(l);
-    if (CONTAM_CLASSES.includes(l.klass)) rec.contam += lineValue(l);
-  });
-  const rows = [...bySite.entries()]
-    .filter(([,r]) => r.total > 0)
-    .map(([site,r]) => ({ site, rate: 100*r.contam/r.total, contam:r.contam, total:r.total }))
-    .sort((a,b)=>a.rate-b.rate);
+  if (state.incorrectDrill === null) {
+    // ---- Level 1: two bars, General Waste and Mixed Recycling ----
+    noteEl.textContent = 'General Waste vs Mixed Recycling · per material_catalogue.stream_setup1 · click a bar for materials';
 
-  if (!rows.length) { chart.clear(); sectionError('siteChart','audits'); return; }
+    const rows = [GW, MR].map(s => {
+      let total = 0, incorrect = 0;
+      lines.forEach(l => {
+        if (l.stream !== s) return;
+        const status = incorrectDisposalStatus(l);
+        if (status === null) return; // unknown material: excluded from both num and denom
+        const v = lineValue(l);
+        total += v;
+        if (status === 'incorrect') incorrect += v;
+      });
+      return { stream: s, total, incorrect, rate: total > 0 ? 100*incorrect/total : null };
+    }).filter(r => r.total > 0);
 
-  chart.setOption({
-    animation: !prefersReducedMotion,
-    tooltip:{ trigger:'axis', axisPointer:{ type:'shadow' },
-      formatter: ps => ps.map(p => `${p.name}<br/>${fmtPct(p.value,1)} contaminated · ${fmt(rows[p.dataIndex].contam)} of ${fmt(rows[p.dataIndex].total)} ${u}`).join('') },
-    grid:{ left:150, right:60, top:6, bottom:24 },
-    xAxis:{ type:'value', max:100, axisLabel:{ formatter:'{value}%' }, splitLine:{ lineStyle:{ color: COLOR.line } } },
-    yAxis:{ type:'category', data: rows.map(r=>r.site), axisLabel:{ fontSize:11, fontFamily:'Inter', width:140, overflow:'truncate' } },
-    series:[{
-      type:'bar',
-      data: rows.map(r => ({ value: Math.round(r.rate*10)/10, itemStyle:{ color: contamColor(r.rate) } })),
-      barMaxWidth:16,
-      label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono', formatter:'{c}%' },
-    }],
-  }, true);
-  chart.off('click');
-  chart.on('click', p => {
-    const site = rows[p.dataIndex] && rows[p.dataIndex].site;
-    if (!site) return;
-    const sel = document.getElementById('areaFilter');
-    state.filters.area = (state.filters.area === site) ? '__all' : site;
-    sel.value = state.filters.area;
-    renderAll();
-  });
+    if (!rows.length) { chart.clear(); sectionError('siteChart','audits'); return; }
+
+    chart.setOption({
+      animation: !prefersReducedMotion,
+      tooltip:{ trigger:'axis', axisPointer:{ type:'shadow' },
+        formatter: ps => ps.map(p => {
+          const r = rows[p.dataIndex];
+          return `${r.stream}<br/>${fmtPct(r.rate,1)} incorrect · ${fmt(r.incorrect)} of ${fmt(r.total)} ${u}`;
+        }).join('') },
+      grid:{ left:150, right:60, top:6, bottom:24 },
+      xAxis:{ type:'value', max:100, axisLabel:{ formatter:'{value}%' }, splitLine:{ lineStyle:{ color: COLOR.line } } },
+      yAxis:{ type:'category', data: rows.map(r=>r.stream), axisLabel:{ fontSize:11, fontFamily:'Inter', width:140, overflow:'truncate' } },
+      series:[{
+        type:'bar',
+        data: rows.map(r => ({ value: Math.round(r.rate*10)/10, itemStyle:{ color: streamColor(r.stream) } })),
+        barMaxWidth:16,
+        label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono', formatter:'{c}%' },
+      }],
+    }, true);
+    chart.off('click');
+    chart.on('click', p => {
+      const stream = rows[p.dataIndex] && rows[p.dataIndex].stream;
+      if (!stream) return;
+      state.incorrectDrill = stream;
+      renderSiteChart(getFilteredLines());
+    });
+
+  } else {
+    // ---- Level 2: incorrectly-disposed materials for the selected stream ----
+    const s = state.incorrectDrill;
+    noteEl.innerHTML = `Incorrect disposal in <b>${escapeHtml(s)}</b> — <a href="#" id="incorrectBackLink">click a bar, or here, to go back</a>`;
+    const backLink = document.getElementById('incorrectBackLink');
+    if (backLink) backLink.addEventListener('click', e => {
+      e.preventDefault(); state.incorrectDrill = null; renderSiteChart(getFilteredLines());
+    });
+
+    let total = 0;
+    const byMat = new Map();
+    lines.forEach(l => {
+      if (l.stream !== s) return;
+      const status = incorrectDisposalStatus(l);
+      if (status === null) return;
+      const v = lineValue(l);
+      total += v;
+      if (status === 'incorrect') byMat.set(l.material, (byMat.get(l.material) || 0) + v);
+    });
+    const rows = [...byMat.entries()]
+      .map(([name, val]) => ({ name, val }))
+      .sort((a,b) => b.val - a.val).slice(0, 12).reverse();
+
+    if (!rows.length) { chart.clear(); sectionError('siteChart','materials'); return; }
+
+    chart.setOption({
+      animation: !prefersReducedMotion,
+      tooltip:{ trigger:'axis', axisPointer:{ type:'shadow' },
+        formatter: ps => ps.map(p => {
+          const share = total ? fmtPct(100*p.value/total,1) : '—';
+          return `${p.name}<br/>${fmt(p.value)} ${u} · ${share} of ${s}`;
+        }).join('') },
+      grid:{ left:170, right:70, top:6, bottom:6 },
+      xAxis:{ type:'value', axisLabel:{ formatter: v => fmt(v,0) + ' ' + u }, splitLine:{ lineStyle:{ color: COLOR.line } } },
+      yAxis:{ type:'category', data: rows.map(r=>r.name), axisLabel:{ fontSize:11, fontFamily:'Inter', width:160, overflow:'truncate' } },
+      series:[{
+        type:'bar',
+        data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: '#EB5757' } })),
+        barMaxWidth:16,
+        label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono',
+          formatter: p => total ? fmtPct(100*p.value/total,1) : '' },
+      }],
+    }, true);
+    chart.off('click');
+    chart.on('click', () => {
+      state.incorrectDrill = null;
+      renderSiteChart(getFilteredLines());
+    });
+  }
 }
 
 /* ---------- auditor coverage ---------- */
@@ -1150,11 +1286,11 @@ function renderMap(audits, lines){
   }
   state.leafletLayer.clearLayers();
 
-  // aggregate per area: audits, coords fallback, value + contamination from lines
+  // aggregate per area: audits, coords fallback, value + Material Pathways contamination
   const byArea = new Map();
   audits.forEach(a => {
     const area = normArea(a);
-    if (!byArea.has(area)) byArea.set(area, { audits:0, lats:[], lngs:[], total:0, recTotal:0, contam:0, kg:0, litres:0 });
+    if (!byArea.has(area)) byArea.set(area, { audits:0, lats:[], lngs:[], total:0, contam:0, kg:0, litres:0 });
     const rec = byArea.get(area);
     rec.audits++;
     if (typeof a.latitude === 'number' && typeof a.longitude === 'number') {
@@ -1168,10 +1304,7 @@ function renderMap(audits, lines){
     rec.total += v;
     rec.kg += (l.kg ?? 0);
     rec.litres += (l.litres ?? 0);
-    if (l.stream !== 'General Waste') {
-      rec.recTotal += v;
-      if (CONTAM_CLASSES.includes(l.klass)) rec.contam += v;
-    }
+    if (l.pathwayValue === 0) rec.contam += v;
   });
 
   const bounds = [];
@@ -1185,14 +1318,14 @@ function renderMap(audits, lines){
       lng = rec.lngs.reduce((a,b)=>a+b,0) / rec.lngs.length;
     } else return; // no way to place this area
 
-    const rate = rec.recTotal > 0 ? 100*rec.contam/rec.recTotal : null;
+    const rate = rec.total > 0 ? 100*rec.contam/rec.total : null;
     const color = contamColor(rate);
     const radius = Math.min(22, 9 + Math.sqrt(rec.audits) * 3);
     L.circleMarker([lat, lng], { radius, color, weight:1.5, fillColor:color, fillOpacity:0.7 })
       .bindPopup(
         `<strong>${escapeHtml(area)}</strong><br/>` +
         `${rec.audits} audit${rec.audits===1?'':'s'} · ${fmt(rec.kg)} kg · ${fmt(rec.litres,0)} L<br/>` +
-        `Contamination: ${rate !== null ? fmtPct(rate,1) : '— (no recycling-stream data)'}<br/>` +
+        `Contamination: ${rate !== null ? fmtPct(rate,1) : '— (no weighable data)'}<br/>` +
         `<a href="#" onclick="window.__filterArea('${escapeHtml(area).replace(/'/g, "\\'")}');return false;">Filter dashboard to this area</a>`)
       .addTo(state.leafletLayer);
     bounds.push([lat, lng]);
@@ -1321,14 +1454,11 @@ function openModal(audit){
   const kg = auditKg(audit);
   const fields = [
     ['Audit date', audit.audit_date || '—'],
-    ['Status', audit.status || '—'],
     ['Stream', BIN_STREAM[audit.bin_type] || audit.bin_type || '—'],
     ['Bin size / fullness', `${audit.bin_size || '—'} / ${fmtPct(typeof audit.fullness_percentage==='number'?audit.fullness_percentage:null,0)}`],
     ['Est. weight', kg !== null ? fmt(kg)+' kg' : '—'],
     ['Contamination (Setup 1)', fmtPct(auditContamSetup1(audit))],
-    ['AI contam. estimate', air ? fmtPct(air.contamination_percentage) : '—'],
     ['AI confidence', air && typeof air.ai_confidence === 'number' ? fmtPct(air.ai_confidence) : '—'],
-    ['Confirmed', air && air.confirmed_at ? 'Yes' : 'No'],
     ['Auditor', normAuditor(audit.auditor_name)],
   ];
   document.getElementById('modalGrid').innerHTML = fields.map(([l,v]) =>
@@ -1424,8 +1554,6 @@ function init(){
   on('refreshBtn','click', fetchAll);
   on('exportBtn','click', exportCsv);
   on('clearFiltersBtn','click', clearAllFilters);
-  on('viewContam','click', () => setPanelView('contamination'));
-  on('viewRecyc','click', () => setPanelView('recyclability'));
   on('autoRefreshChk','change', setupAutoRefresh);
   on('auditFilter','change', e => { f.auditId = e.target.value; renderAll(); });
   on('areaFilter','change', e => { f.area = e.target.value; populateFilterOptions(); renderAll(); });
