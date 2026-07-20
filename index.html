@@ -1067,7 +1067,11 @@ ${tabLabel}`,
       <b>${fmtPct(share, 1)}</b></div>`;
   }).join('') + (state.classFocus !== null ? `<div class="panel-note" style="margin-top:6px;">Filtering material list: ${escapeHtml(PATHWAY_META[state.classFocus].label)} — click segment again to clear</div>` : '');
 
-  /* material bars: colored by dominant pathway; tooltip includes best-available-stream */
+  /* material bars:
+       - Default view (no donut slice selected): horizontal STACK by pathway class
+         (Contamination / Lost Recycling / Suboptimal Stream / Best Available / Unclassified).
+       - Focused view (a donut slice IS selected): single-series bars filtered to that
+         pathway class, colored by best-available-stream (index-1 behaviour). */
   const barsEl = document.getElementById('materialBars');
   if (!state.charts.bars) state.charts.bars = echarts.init(barsEl);
   const byMat = new Map();
@@ -1082,30 +1086,81 @@ ${tabLabel}`,
   const rows = [...byMat.entries()]
     .map(([name, rec]) => {
       const domGroup = Object.entries(rec.byGroup).sort((a,b)=>b[1]-a[1])[0][0];
-      return { name, val: rec.val, group: domGroup, sample: rec.sample };
+      return { name, val: rec.val, group: domGroup, byGroup: rec.byGroup, sample: rec.sample };
     })
     .sort((a,b)=>b.val-a.val).slice(0, 12).reverse();
 
-  state.charts.bars.setOption({
-    animation: !prefersReducedMotion,
-    tooltip: { trigger:'axis', axisPointer:{ type:'shadow' },
+  let seriesOpt, tooltipOpt;
+  if (state.classFocus !== null) {
+    /* Focused (index-1) view */
+    tooltipOpt = { trigger:'axis', axisPointer:{ type:'shadow' },
       formatter: ps => ps.map(p => {
         const r = rows[p.dataIndex];
         const share = total ? fmtPct(100*p.value/total,1) : '—';
         const bestColor = bestStreamColor(r.sample);
         return `${p.name}<br/>${fmt(p.value)} ${u} · ${share} of ${tabLabel}<br/><i>${PATHWAY_META[r.group].label}</i>` +
           `<br/><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${bestColor};margin-right:5px;"></span>Best available: ${escapeHtml(bestStreamLabel(r.sample))}`;
-      }).join('') },
-    grid:{ left:170, right:70, top:6, bottom:6 },
-    xAxis:{ type:'value', axisLabel:{ formatter: v => fmt(v,0) + ' ' + u }, splitLine:{ lineStyle:{ color: COLOR.line } } },
-    yAxis:{ type:'category', data: rows.map(r=>r.name), axisLabel:{ fontSize:11, fontFamily:'Inter', width:160, overflow:'truncate' } },
-    series:[{
+      }).join('') };
+    seriesOpt = [{
       type:'bar',
-      data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: state.classFocus !== null ? bestStreamColor(r.sample) : PATHWAY_META[r.group].color } })),
+      data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: bestStreamColor(r.sample) } })),
       barMaxWidth:16,
       label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono',
         formatter: p => total ? fmtPct(100*p.value/total,1) : '' },
-    }],
+    }];
+  } else {
+    /* Default stacked (index-2) view */
+    const stackKeys = ['0','1','2','3','unclassified'];
+    seriesOpt = stackKeys.map(k => ({
+      name: PATHWAY_META[k].label,
+      type: 'bar',
+      stack: 'pathway',
+      barMaxWidth: 16,
+      itemStyle: { color: PATHWAY_META[k].color },
+      emphasis: { focus: 'series' },
+      data: rows.map(r => Math.round((r.byGroup[k] || 0) * 100) / 100),
+      label: {
+        show: true,
+        position: 'right',
+        fontSize: 10.5,
+        fontFamily: 'IBM Plex Mono',
+        color: COLOR.ink,
+        formatter: p => {
+          const r = rows[p.dataIndex];
+          let lastK = null;
+          for (const kk of stackKeys) if ((r.byGroup[kk] || 0) > 0) lastK = kk;
+          if (lastK !== k) return '';
+          return total ? fmtPct(100 * r.val / total, 1) : '';
+        },
+      },
+    }));
+    tooltipOpt = {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: ps => {
+        if (!ps.length) return '';
+        const r = rows[ps[0].dataIndex];
+        const totalShare = total ? fmtPct(100 * r.val / total, 1) : '—';
+        const parts = ps
+          .filter(p => p.value > 0)
+          .sort((a, b) => b.value - a.value)
+          .map(p => {
+            const share = r.val ? fmtPct(100 * p.value / r.val, 1) : '—';
+            return `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color};margin-right:5px;"></span>${p.seriesName}: ${fmt(p.value)} ${u} (${share})`;
+          }).join('<br/>');
+        return `<b>${ps[0].name}</b><br/>${fmt(r.val)} ${u} · ${totalShare} of ${tabLabel}<br/>${parts}`;
+      },
+    };
+  }
+
+  state.charts.bars.setOption({
+    animation: !prefersReducedMotion,
+    tooltip: tooltipOpt,
+    legend: { show: false },
+    grid:{ left:170, right:70, top:6, bottom:6 },
+    xAxis:{ type:'value', axisLabel:{ formatter: v => fmt(v,0) + ' ' + u }, splitLine:{ lineStyle:{ color: COLOR.line } } },
+    yAxis:{ type:'category', data: rows.map(r=>r.name), axisLabel:{ fontSize:11, fontFamily:'Inter', width:160, overflow:'truncate' } },
+    series: seriesOpt,
   }, true);
 
   /* tiles: the 5 stream destinations (Setup 2, fixed) — independent of the donut above,
