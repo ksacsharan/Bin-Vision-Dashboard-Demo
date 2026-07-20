@@ -257,14 +257,14 @@
         <div class="kpi-sub" id="kpiTotalWasteSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-teal">
-        <div class="kpi-label">Actual recycling rate</div>
+        <div class="kpi-label">Recycling rate</div>
         <div class="kpi-value" id="kpiActualRate">—</div>
         <div class="kpi-sub" id="kpiActualRateSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-amber">
-        <div class="kpi-label">Potential recovery rate</div>
+        <div class="kpi-label">Potential recycling rate</div>
         <div class="kpi-value" id="kpiPotentialRate">—</div>
-        <div class="kpi-sub">if full bin setup available</div>
+        <div class="kpi-sub">if full bin setup available and used correctly</div>
       </div>
       <div class="kpi-card c-red">
         <div class="kpi-label">Number of audits</div>
@@ -272,14 +272,14 @@
         <div class="kpi-sub" id="kpiAuditCountSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-blue">
-        <div class="kpi-label">MR - Contamination rate</div>
+        <div class="kpi-label">Mixed Recycling - Incorrect Disposal</div>
         <div class="kpi-value" id="kpiCds">—</div>
-        <div class="kpi-sub">General waste &amp; food waste incorrectly disposed</div>
+        <div class="kpi-sub">General waste found in Mixed Recycling</div>
       </div>
       <div class="kpi-card c-violet">
-        <div class="kpi-label">Recyclables lost to general waste</div>
+        <div class="kpi-label">General Waste - Incorrect Disposal</div>
         <div class="kpi-value" id="kpiRecoverable">—</div>
-        <div class="kpi-sub" id="kpiRecoverableSub">&nbsp;</div>
+        <div class="kpi-sub">Mixed Recycling in General waste</div>
       </div>
     </div>
 
@@ -944,11 +944,22 @@ function renderKPIs(lines, audits){
   let recycledKg = 0, recycledL = 0;
   lines.forEach(l => { if (isRecycled1(l)) { recycledKg += (l.kg ?? 0); recycledL += (l.litres ?? 0); } });
 
-  // Material Pathways (matrix-based): MR contamination rate (value 0 in Mixed Recycling),
-  // and Lost Recycling (value 1, anywhere) as a share of ALL audited material.
-  const mrTotal = sumBy(lines, l => l.stream === 'Mixed Recycling');
-  const mrContam = sumBy(lines, l => l.stream === 'Mixed Recycling' && l.pathwayValue === 0);
-  const lostRecyclingTotal = sumBy(lines, l => l.pathwayValue === 1);
+  // Mixed Recycling / General Waste — Incorrect Disposal rate, same logic and numbers as the
+  // Incorrect Disposal chart's own two bars (material_catalogue.stream_setup1, GW/MR only).
+  function incorrectRate(stream){
+    let t = 0, inc = 0;
+    lines.forEach(l => {
+      if (l.stream !== stream) return;
+      const status = incorrectDisposalStatus(l);
+      if (status === null) return;
+      const v = lineValue(l);
+      t += v;
+      if (status === 'incorrect') inc += v;
+    });
+    return t > 0 ? 100*inc/t : null;
+  }
+  const mrIncorrectRate = incorrectRate('Mixed Recycling');
+  const gwIncorrectRate = incorrectRate('General Waste');
 
   document.getElementById('kpiTotalWaste').textContent = fmt(state.filters.unit === 'kg' ? totalKg : totalL) + ' ' + u;
   document.getElementById('kpiTotalWasteSub').textContent =
@@ -963,9 +974,8 @@ function renderKPIs(lines, audits){
   document.getElementById('kpiAuditCount').textContent = audits.length;
   document.getElementById('kpiAuditCountSub').textContent = `${withAiData} with AI material data`;
 
-  document.getElementById('kpiCds').textContent = mrTotal ? fmtPct(100*mrContam/mrTotal,1) : '—';
-  document.getElementById('kpiRecoverable').textContent = total ? fmtPct(100*lostRecyclingTotal/total,1) : '—';
-  document.getElementById('kpiRecoverableSub').textContent = fmt(lostRecyclingTotal) + ' ' + u;
+  document.getElementById('kpiCds').textContent = mrIncorrectRate !== null ? fmtPct(mrIncorrectRate,1) : '—';
+  document.getElementById('kpiRecoverable').textContent = gwIncorrectRate !== null ? fmtPct(gwIncorrectRate,1) : '—';
 }
 
 /* ---------- Material Pathways panel (single view, matrix-based) ---------- */
@@ -1159,7 +1169,7 @@ function renderSiteChart(lines){
       yAxis:{ type:'category', data: rows.map(r=>r.stream), axisLabel:{ fontSize:11, fontFamily:'Inter', width:140, overflow:'truncate' } },
       series:[{
         type:'bar',
-        data: rows.map(r => ({ value: Math.round(r.rate*10)/10, itemStyle:{ color: streamColor(r.stream) } })),
+        data: rows.map(r => ({ value: Math.round(r.rate*10)/10, itemStyle:{ color: '#EB5757' } })),
         barMaxWidth:16,
         label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono', formatter:'{c}%' },
       }],
