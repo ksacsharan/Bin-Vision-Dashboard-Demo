@@ -269,7 +269,6 @@
       <div class="kpi-card c-red">
         <div class="kpi-label">Number of audits</div>
         <div class="kpi-value" id="kpiAuditCount">—</div>
-        <div class="kpi-sub" id="kpiAuditCountSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-blue">
         <div class="kpi-label">Mixed Recycling - Incorrect Disposal</div>
@@ -446,12 +445,12 @@ const MATERIAL_MATRIX = {
   "Disposable Cold Cups": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Other Composite Packaging (Multilayer)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Takeaway Containers (Composite)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
-  "Ice cream Cups (Disposable)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Ice Cream Cups (Disposable)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Compostable Biopack": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Compostable Packaging": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Paper Straws": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
-  "Tissue Paper (Dry)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
-  "Tissue Paper (Wet)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Tissues, Paper Towels, Serviettes and Toilet Paper (Dry)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Tissues, Paper Towels, Serviettes and Toilet Paper (Wet / Contaminated)": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Batteries": {"General Waste": 0, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "E-Waste": {"General Waste": 0, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Other Glass": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
@@ -476,8 +475,7 @@ const MATERIAL_MATRIX = {
   "Paper": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
   "Waxy or Coated Cardboard": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Pizza Boxes": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
-  "Paper bags": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
-  "Paper Towels and Serviettes": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
+  "Paper Bags": {"General Waste": 1, "Mixed recycling": 2, "Paper & cardboard": 3, "CDS": 0, "Organics": 0},
   "HDPE (Type 2)": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Other Flexible Plastics": {"General Waste": 3, "Mixed recycling": 0, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
   "Other Rigid Plastics": {"General Waste": 1, "Mixed recycling": 3, "Paper & cardboard": 0, "CDS": 0, "Organics": 0},
@@ -944,8 +942,8 @@ function renderKPIs(lines, audits){
   let recycledKg = 0, recycledL = 0;
   lines.forEach(l => { if (isRecycled1(l)) { recycledKg += (l.kg ?? 0); recycledL += (l.litres ?? 0); } });
 
-  // Mixed Recycling / General Waste — Incorrect Disposal rate, same logic and numbers as the
-  // Incorrect Disposal chart's own two bars (material_catalogue.stream_setup1, GW/MR only).
+  // Mixed Recycling / General Waste — Incorrect Disposal, same logic as the Incorrect Disposal
+  // chart's own two bars (material_catalogue.stream_setup1, GW/MR only).
   function incorrectRate(stream){
     let t = 0, inc = 0;
     lines.forEach(l => {
@@ -956,10 +954,10 @@ function renderKPIs(lines, audits){
       t += v;
       if (status === 'incorrect') inc += v;
     });
-    return t > 0 ? 100*inc/t : null;
+    return { rate: t > 0 ? 100*inc/t : null, incorrect: inc, total: t };
   }
-  const mrIncorrectRate = incorrectRate('Mixed Recycling');
-  const gwIncorrectRate = incorrectRate('General Waste');
+  const mrIncorrect = incorrectRate('Mixed Recycling');
+  const gwIncorrect = incorrectRate('General Waste');
 
   document.getElementById('kpiTotalWaste').textContent = fmt(state.filters.unit === 'kg' ? totalKg : totalL) + ' ' + u;
   document.getElementById('kpiTotalWasteSub').textContent =
@@ -970,12 +968,10 @@ function renderKPIs(lines, audits){
 
   document.getElementById('kpiPotentialRate').textContent = total ? fmtPct(100*recoverableTotal/total,1) : '—';
 
-  const withAiData = new Set(lines.map(l => l.audit.id)).size;
   document.getElementById('kpiAuditCount').textContent = audits.length;
-  document.getElementById('kpiAuditCountSub').textContent = `${withAiData} with AI material data`;
 
-  document.getElementById('kpiCds').textContent = mrIncorrectRate !== null ? fmtPct(mrIncorrectRate,1) : '—';
-  document.getElementById('kpiRecoverable').textContent = gwIncorrectRate !== null ? fmtPct(gwIncorrectRate,1) : '—';
+  document.getElementById('kpiCds').textContent = fmt(mrIncorrect.incorrect) + ' ' + u;
+  document.getElementById('kpiRecoverable').textContent = gwIncorrect.rate !== null ? fmtPct(gwIncorrect.rate,1) : '—';
 }
 
 /* ---------- Material Pathways panel (single view, matrix-based) ---------- */
