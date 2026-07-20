@@ -264,7 +264,7 @@
       <div class="kpi-card c-amber">
         <div class="kpi-label">Potential recycling rate</div>
         <div class="kpi-value" id="kpiPotentialRate">—</div>
-        <div class="kpi-sub">if full bin setup available and used correctly</div>
+        <div class="kpi-sub" id="kpiPotentialRateSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-red">
         <div class="kpi-label">Number of audits</div>
@@ -273,12 +273,12 @@
       <div class="kpi-card c-blue">
         <div class="kpi-label">Mixed Recycling - Incorrect Disposal</div>
         <div class="kpi-value" id="kpiCds">—</div>
-        <div class="kpi-sub">General waste found in Mixed Recycling</div>
+        <div class="kpi-sub" id="kpiCdsSub">&nbsp;</div>
       </div>
       <div class="kpi-card c-violet">
         <div class="kpi-label">General Waste - Incorrect Disposal</div>
         <div class="kpi-value" id="kpiRecoverable">—</div>
-        <div class="kpi-sub">Mixed Recycling in General waste</div>
+        <div class="kpi-sub" id="kpiRecoverableSub">&nbsp;</div>
       </div>
     </div>
 
@@ -964,14 +964,20 @@ function renderKPIs(lines, audits){
     `${fmt(totalL,0)} L · ${fmt(totalKg)} kg`;
 
   document.getElementById('kpiActualRate').textContent = total ? fmtPct(100*correctlyRecycled/total,1) : '—';
-  document.getElementById('kpiActualRateSub').textContent = total ? `${fmt(recycledKg)} kg · ${fmt(recycledL,0)} L via MRF` : ' ';
+  document.getElementById('kpiActualRateSub').textContent = total ? `${fmt(recycledKg)} kg · ${fmt(recycledL,0)} L` : ' ';
 
   document.getElementById('kpiPotentialRate').textContent = total ? fmtPct(100*recoverableTotal/total,1) : '—';
+  document.getElementById('kpiPotentialRateSub').textContent = total ? `${fmt(recoverableTotal)} kg · ${fmt(lines.reduce((s,l)=>s+(l.litres??0)*(isRecyclable1(l)?1:0),0),0)} L` : ' ';
 
   document.getElementById('kpiAuditCount').textContent = audits.length;
 
-  document.getElementById('kpiCds').textContent = fmt(mrIncorrect.incorrect) + ' ' + u;
+  document.getElementById('kpiCds').textContent = mrIncorrect.rate !== null ? fmtPct(mrIncorrect.rate,1) : '—';
+  const mrIncorrectKg = lines.filter(l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='Mixed Recycling').reduce((s,l)=>s+(l.kg??0),0);
+  const mrIncorrectL = lines.filter(l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='Mixed Recycling').reduce((s,l)=>s+(l.litres??0),0);
+  document.getElementById('kpiCdsSub').textContent=`${fmt(mrIncorrectKg)} kg · ${fmt(mrIncorrectL,0)} L`;
+
   document.getElementById('kpiRecoverable').textContent = gwIncorrect.rate !== null ? fmtPct(gwIncorrect.rate,1) : '—';
+  document.getElementById('kpiRecoverableSub').textContent=`${fmt(sumBy(lines,l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='General Waste'))} kg · ${fmt(lines.filter(l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='General Waste').reduce((s,l)=>s+(l.litres??0),0),0)} L`;
 }
 
 /* ---------- Material Pathways panel (single view, matrix-based) ---------- */
