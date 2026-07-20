@@ -43,6 +43,8 @@
   .side-nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;}
   .side-nav li{padding:9px 10px;border-radius:4px;font-size:13px;color:rgba(234,237,231,.72);cursor:default;}
   .side-nav li.active{background:rgba(234,237,231,.1);color:#fff;}
+  .side-nav li.disabled{cursor:not-allowed;pointer-events:none;color:rgba(234,237,231,.38);}
+  .beta-tag{font-size:10px;letter-spacing:.04em;color:rgba(234,237,231,.5);}
   .side-spacer{flex:1;}
   .side-note{font-size:10.5px;color:rgba(234,237,231,.4);line-height:1.5;}
 
@@ -193,9 +195,9 @@
     <div class="brand-sub">Bin Audit Operations</div>
     <ul class="side-nav">
       <li class="active">Report</li>
-      <li>Audits</li>
-      <li>Materials</li>
-      <li>Locations</li>
+      <li class="disabled">Audits <span class="beta-tag">(beta)</span></li>
+      <li class="disabled">Materials <span class="beta-tag">(beta)</span></li>
+      <li class="disabled">Locations <span class="beta-tag">(beta)</span></li>
     </ul>
     <div class="side-spacer"></div>
     <div class="side-note">
@@ -222,10 +224,6 @@
         <select id="projectFilter"><option value="__all">All projects</option></select>
       </div>
       <div class="slicer">
-        <span class="slicer-label">Audit</span>
-        <select id="auditFilter" style="max-width:360px;"><option value="__all">All audits</option></select>
-      </div>
-      <div class="slicer">
         <span class="slicer-label">Site / area</span>
         <select id="areaFilter"><option value="__all">All sites</option></select>
       </div>
@@ -238,15 +236,15 @@
         <select id="auditorFilter"><option value="__all">All auditors</option></select>
       </div>
       <div class="slicer">
+        <span class="slicer-label">Audit</span>
+        <select id="auditFilter" style="max-width:360px;"><option value="__all">All audits</option></select>
+      </div>
+      <div class="slicer">
         <span class="slicer-label">Unit</span>
         <div class="unit-toggle">
           <button id="unitKg" class="active">Weight (kg)</button>
           <button id="unitL">Volume (L)</button>
         </div>
-      </div>
-      <div class="slicer slicer-checks">
-        <label class="chk"><input type="checkbox" id="confirmedOnlyChk" /> Confirmed AI results only</label>
-        <label class="chk"><input type="checkbox" id="includeExcludedChk" /> Include drafts / test data</label>
       </div>
       <div class="slicer slicer-clear">
         <span class="slicer-label">&nbsp;</span>
@@ -367,7 +365,7 @@
           <thead>
             <tr>
               <th>Date</th><th>Site</th><th>Location</th><th>Stream</th><th>Bin</th>
-              <th>Fullness</th><th>Est. weight</th><th>Contamination</th><th>Status</th><th>Auditor</th><th>Photos</th>
+              <th>Fullness</th><th>Est. weight</th><th>Contam. (Setup 1)</th><th>Auditor</th><th>Photos</th>
             </tr>
           </thead>
           <tbody id="auditTableBody"></tbody>
@@ -708,7 +706,13 @@ function populateFilterOptions(){
   const scoped = state.filters.project === '__all'
     ? visible
     : visible.filter(a => normProject(a) === state.filters.project);
-  const sorted = [...scoped].sort((x,y) => String(y.audit_date||'').localeCompare(String(x.audit_date||'')));
+  // The audit picker is fully dynamic: it lists only audits matching every other active filter.
+  const f0 = state.filters;
+  const auditScoped = scoped.filter(a =>
+    (f0.area === '__all' || normArea(a) === f0.area) &&
+    (f0.stream === '__all' || (BIN_STREAM[a.bin_type] || '—') === f0.stream) &&
+    (f0.auditor === '__all' || normAuditor(a.auditor_name) === f0.auditor));
+  const sorted = [...auditScoped].sort((x,y) => String(y.audit_date||'').localeCompare(String(x.audit_date||'')));
   const prevAudit = state.filters.auditId;
   auditSel.innerHTML = '<option value="__all">All audits</option>' +
     sorted.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(auditOptionLabel(a))}</option>`).join('');
@@ -782,7 +786,6 @@ function clearAllFilters(){
   document.getElementById('projectFilter').value = '__all';
   document.getElementById('streamFilter').value = '__all';
   document.getElementById('auditorFilter').value = '__all';
-  document.getElementById('confirmedOnlyChk').checked = false;
   document.getElementById('tableSearch').value = '';
   populateFilterOptions();
   renderAll();
@@ -823,13 +826,15 @@ function renderKPIs(lines, audits){
   const totalKg = lines.reduce((s,l) => s + (l.kg ?? 0), 0);
   const totalL = lines.reduce((s,l) => s + (l.litres ?? 0), 0);
 
-  // recyclable = anything whose correct destination is NOT General Waste
-  const recoverableTotal = sumBy(lines, l => l.klass !== 'unclassified' &&
-    !(l.klass === 'correct' && l.stream === 'General Waste') && (
-      (l.klass === 'correct' && l.stream !== 'General Waste') ||
-      l.klass === 'cds_missed' || l.klass === 'recoverable_gw' || l.klass === 'cross_stream'
-    ));
-  const correctlyRecycled = sumBy(lines, l => l.klass === 'correct' && l.stream !== 'General Waste');
+  // Recycling logic per Setup 1 (client-defined): a line is recyclable if its setup-1
+  // home is a recycling stream; it is ACTUALLY recycled if it was also found in a
+  // recycling bin (the MRF recovers it there — CDS/P&C material in Mixed Recycling counts).
+  const isRecyclable1 = l => l.dest1 && l.dest1 !== 'General Waste';
+  const isRecycled1  = l => isRecyclable1(l) && l.stream !== 'General Waste';
+  const recoverableTotal = sumBy(lines, isRecyclable1);
+  const correctlyRecycled = sumBy(lines, isRecycled1);
+  let recycledKg = 0, recycledL = 0;
+  lines.forEach(l => { if (isRecycled1(l)) { recycledKg += (l.kg ?? 0); recycledL += (l.litres ?? 0); } });
 
   const cdsMissed = sumBy(lines, l => l.klass === 'cds_missed');
   const recoverableGw = sumBy(lines, l => l.klass === 'recoverable_gw');
@@ -839,7 +844,7 @@ function renderKPIs(lines, audits){
     `${fmt(totalL,0)} L · ${fmt(totalKg)} kg`;
 
   document.getElementById('kpiActualRate').textContent = total ? fmtPct(100*correctlyRecycled/total,1) : '—';
-  document.getElementById('kpiActualRateSub').textContent = total ? `${fmt(recoverableTotal)} ${u} recoverable in view` : ' ';
+  document.getElementById('kpiActualRateSub').textContent = total ? `${fmt(recycledKg)} kg · ${fmt(recycledL,0)} L via MRF` : ' ';
 
   document.getElementById('kpiPotentialRate').textContent = total ? fmtPct(100*recoverableTotal/total,1) : '—';
 
@@ -1250,6 +1255,18 @@ function renderSankey(lines){
 }
 
 /* ---------- table + modal ---------- */
+// Per-audit contamination rate per Setup 1: value of lines not in their setup-1 bin
+// ÷ the audit's total value (current kg/L basis). Unclassified stays in the denominator.
+function auditContamSetup1(a){
+  let total = 0, contam = 0, any = false;
+  state.lines.forEach(l => {
+    if (l.audit !== a) return;
+    const v = lineValue(l);
+    total += v; any = true;
+    if (l.dest1 && l.dest1 !== l.stream) contam += v;
+  });
+  return (any && total > 0) ? 100 * contam / total : null;
+}
 function auditKg(a){
   let s = 0, any = false;
   state.lines.forEach(l => { if (l.audit === a && l.kg !== null){ s += l.kg; any = true; } });
@@ -1267,12 +1284,11 @@ function renderTable(audits){
     state.allAudits.length ? `${state.allAudits.length} audits loaded (limit ${CONFIG.ROW_LIMIT})` : '';
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="11" class="empty-note">No audits match the current filters.</td></tr>';
+    body.innerHTML = '<tr><td colspan="10" class="empty-note">No audits match the current filters.</td></tr>';
     return;
   }
   body.innerHTML = rows.map(a => {
-    const air = getAiResult(a);
-    const contam = air ? air.contamination_percentage : null;
+    const contam = auditContamSetup1(a);
     const kg = auditKg(a);
     return `<tr data-id="${escapeHtml(a.id)}">
       <td>${escapeHtml(a.audit_date || '—')}</td>
@@ -1283,7 +1299,6 @@ function renderTable(audits){
       <td>${fmtPct(typeof a.fullness_percentage==='number' ? a.fullness_percentage : null, 0)}</td>
       <td>${kg !== null ? fmt(kg)+' kg' : '—'}</td>
       <td style="color:${contamColor(contam)}">${fmtPct(contam)}</td>
-      <td><span class="badge ${statusBadgeClass(a.status)}">${escapeHtml(a.status || '—')}</span></td>
       <td class="wrap">${escapeHtml(normAuditor(a.auditor_name))}</td>
       <td>${auditImages(a).length ? `<span class="photo-chip" title="View ${auditImages(a).length} photo(s)">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -1310,7 +1325,8 @@ function openModal(audit){
     ['Stream', BIN_STREAM[audit.bin_type] || audit.bin_type || '—'],
     ['Bin size / fullness', `${audit.bin_size || '—'} / ${fmtPct(typeof audit.fullness_percentage==='number'?audit.fullness_percentage:null,0)}`],
     ['Est. weight', kg !== null ? fmt(kg)+' kg' : '—'],
-    ['Contamination (AI)', air ? fmtPct(air.contamination_percentage) : '—'],
+    ['Contamination (Setup 1)', fmtPct(auditContamSetup1(audit))],
+    ['AI contam. estimate', air ? fmtPct(air.contamination_percentage) : '—'],
     ['AI confidence', air && typeof air.ai_confidence === 'number' ? fmtPct(air.ai_confidence) : '—'],
     ['Confirmed', air && air.confirmed_at ? 'Yes' : 'No'],
     ['Auditor', normAuditor(audit.auditor_name)],
@@ -1412,12 +1428,10 @@ function init(){
   on('viewRecyc','click', () => setPanelView('recyclability'));
   on('autoRefreshChk','change', setupAutoRefresh);
   on('auditFilter','change', e => { f.auditId = e.target.value; renderAll(); });
-  on('areaFilter','change', e => { f.area = e.target.value; renderAll(); });
+  on('areaFilter','change', e => { f.area = e.target.value; populateFilterOptions(); renderAll(); });
   on('projectFilter','change', e => { f.project = e.target.value; populateFilterOptions(); renderAll(); });
-  on('streamFilter','change', e => { f.stream = e.target.value; renderAll(); });
-  on('auditorFilter','change', e => { f.auditor = e.target.value; renderAll(); });
-  on('confirmedOnlyChk','change', e => { f.confirmedOnly = e.target.checked; renderAll(); });
-  on('includeExcludedChk','change', e => { f.includeExcluded = e.target.checked; populateFilterOptions(); renderAll(); });
+  on('streamFilter','change', e => { f.stream = e.target.value; populateFilterOptions(); renderAll(); });
+  on('auditorFilter','change', e => { f.auditor = e.target.value; populateFilterOptions(); renderAll(); });
   on('unitKg','click', () => { f.unit='kg'; document.getElementById('unitKg').classList.add('active'); document.getElementById('unitL').classList.remove('active'); renderAll(); });
   on('unitL','click', () => { f.unit='L'; document.getElementById('unitL').classList.add('active'); document.getElementById('unitKg').classList.remove('active'); renderAll(); });
   on('tableSearch','input', () => { renderTable(getFilteredAudits()); updateClearBtn(); });
