@@ -159,6 +159,15 @@
   .modal-field-value{font-family:var(--font-mono);font-size:13px;margin-top:2px;}
   .modal-summary{font-size:12.5px;color:var(--ink-soft);background:var(--paper-raised);border:1px solid var(--line);border-radius:4px;padding:10px 12px;margin-bottom:14px;}
 
+  .photo-chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:11px;color:var(--blue);}
+  .photo-chip.none{color:var(--ink-faint);}
+  .gallery-title{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 8px;}
+  .gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;}
+  .gallery-item{position:relative;display:block;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--paper-raised);aspect-ratio:4/3;}
+  .gallery-item img{width:100%;height:100%;object-fit:cover;display:block;}
+  .gallery-item.broken img{display:none;}
+  .gallery-item.broken::after{content:'image unavailable';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-faint);}
+  .gallery-tag{position:absolute;left:4px;bottom:4px;background:rgba(30,36,32,.75);color:var(--paper);font-size:9px;padding:1px 6px;border-radius:10px;text-transform:capitalize;}
   footer.credit{margin-top:8px;font-size:11px;color:var(--ink-faint);}
 
   @media (max-width:1100px){
@@ -358,7 +367,7 @@
           <thead>
             <tr>
               <th>Date</th><th>Site</th><th>Location</th><th>Stream</th><th>Bin</th>
-              <th>Fullness</th><th>Est. weight</th><th>Contamination</th><th>Status</th><th>Auditor</th>
+              <th>Fullness</th><th>Est. weight</th><th>Contamination</th><th>Status</th><th>Auditor</th><th>Photos</th>
             </tr>
           </thead>
           <tbody id="auditTableBody"></tbody>
@@ -382,6 +391,7 @@
     <div class="modal-grid" id="modalGrid"></div>
     <div class="modal-summary" id="modalSummary" style="display:none;"></div>
     <div id="modalMaterialsChart" style="height:230px;"></div>
+    <div id="modalGallery"></div>
   </div>
 </div>
 
@@ -392,6 +402,7 @@
 const CONFIG = {
   SUPABASE_URL: 'https://tsfxdrjtdhwvunwpoxbs.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_oCb8WJ2RHMa-WsHNRXn2rw_8qfoDQXm',
+  STORAGE_BUCKET: 'audit-images',   // public Supabase Storage bucket holding audit photos
   ROW_LIMIT: 1000,
   AUTO_REFRESH_MS: 60000,
 };
@@ -529,6 +540,15 @@ function normAuditor(name){
   if (!t) return 'Unknown';
   return AUDITOR_ALIASES[t.toLowerCase()] || t;
 }
+function auditImages(a){
+  const imgs = Array.isArray(a.audit_images) ? a.audit_images : [];
+  return imgs.filter(i => i && i.image_url).map(i => ({
+    ...i,
+    url: /^https?:\/\//i.test(i.image_url)
+      ? i.image_url
+      : CONFIG.SUPABASE_URL + '/storage/v1/object/public/' + CONFIG.STORAGE_BUCKET + '/' + i.image_url.replace(/^\/+/, ''),
+  }));
+}
 function normProject(a){
   const p = (a.Project || '').trim();
   return p && p.toLowerCase() !== 'null' ? p : '(No project)';
@@ -641,7 +661,8 @@ async function fetchAll(){
         ai_results (
           contamination_percentage, ai_confidence, summary, observations, confirmed_at,
           materials ( material_name, percentage )
-        )
+        ),
+        audit_images ( image_url, image_type, created_at )
       `)
       .order('audit_date', { ascending: false })
       .limit(CONFIG.ROW_LIMIT);
@@ -1246,7 +1267,7 @@ function renderTable(audits){
     state.allAudits.length ? `${state.allAudits.length} audits loaded (limit ${CONFIG.ROW_LIMIT})` : '';
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="10" class="empty-note">No audits match the current filters.</td></tr>';
+    body.innerHTML = '<tr><td colspan="11" class="empty-note">No audits match the current filters.</td></tr>';
     return;
   }
   body.innerHTML = rows.map(a => {
@@ -1264,6 +1285,9 @@ function renderTable(audits){
       <td style="color:${contamColor(contam)}">${fmtPct(contam)}</td>
       <td><span class="badge ${statusBadgeClass(a.status)}">${escapeHtml(a.status || '—')}</span></td>
       <td class="wrap">${escapeHtml(normAuditor(a.auditor_name))}</td>
+      <td>${auditImages(a).length ? `<span class="photo-chip" title="View ${auditImages(a).length} photo(s)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        ${auditImages(a).length}</span>` : '<span class="photo-chip none">—</span>'}</td>
     </tr>`;
   }).join('');
   [...body.querySelectorAll('tr[data-id]')].forEach(tr => {
@@ -1317,6 +1341,19 @@ function openModal(audit){
     setTimeout(() => state.charts.modal.resize(), 50);
   } else mEl.style.display = 'none';
 
+  const gal = document.getElementById('modalGallery');
+  const imgs = auditImages(audit);
+  if (imgs.length) {
+    gal.innerHTML = '<div class="gallery-title">Audit photos (' + imgs.length + ')</div>' +
+      '<div class="gallery-grid">' + imgs.map(i =>
+        `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener" class="gallery-item" title="${escapeHtml(i.image_type || 'photo')} — open full size">
+           <img src="${escapeHtml(i.url)}" loading="lazy" alt="${escapeHtml(i.image_type || 'audit photo')}"
+                onerror="this.parentElement.classList.add('broken')" />
+           <span class="gallery-tag">${escapeHtml(i.image_type || '')}</span>
+         </a>`).join('') + '</div>';
+  } else {
+    gal.innerHTML = '';
+  }
   document.getElementById('modalBackdrop').classList.add('open');
 }
 function closeModal(){ document.getElementById('modalBackdrop').classList.remove('open'); }
