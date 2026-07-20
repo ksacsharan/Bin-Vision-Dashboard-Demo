@@ -1095,7 +1095,7 @@ ${tabLabel}`,
     yAxis:{ type:'category', data: rows.map(r=>r.name), axisLabel:{ fontSize:11, fontFamily:'Inter', width:160, overflow:'truncate' } },
     series:[{
       type:'bar',
-      data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: PATHWAY_META[r.group].color } })),
+      data: rows.map(r => ({ value: Math.round(r.val*100)/100, itemStyle:{ color: state.classFocus !== null ? bestStreamColor(r.sample) : PATHWAY_META[r.group].color } })),
       barMaxWidth:16,
       label:{ show:true, position:'right', fontSize:10.5, fontFamily:'IBM Plex Mono',
         formatter: p => total ? fmtPct(100*p.value/total,1) : '' },
