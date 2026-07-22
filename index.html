@@ -941,6 +941,8 @@ function renderKPIs(lines, audits){
   const correctlyRecycled = sumBy(lines, isRecycled1);
   let recycledKg = 0, recycledL = 0;
   lines.forEach(l => { if (isRecycled1(l)) { recycledKg += (l.kg ?? 0); recycledL += (l.litres ?? 0); } });
+  let recoverableKg = 0, recoverableL = 0;
+  lines.forEach(l => { if (isRecyclable1(l)) { recoverableKg += (l.kg ?? 0); recoverableL += (l.litres ?? 0); } });
 
   // Mixed Recycling / General Waste — Incorrect Disposal, same logic as the Incorrect Disposal
   // chart's own two bars (material_catalogue.stream_setup1, GW/MR only).
@@ -967,7 +969,7 @@ function renderKPIs(lines, audits){
   document.getElementById('kpiActualRateSub').textContent = total ? `${fmt(recycledKg)} kg · ${fmt(recycledL,0)} L` : ' ';
 
   document.getElementById('kpiPotentialRate').textContent = total ? fmtPct(100*recoverableTotal/total,1) : '—';
-  document.getElementById('kpiPotentialRateSub').textContent = total ? `${fmt(recoverableTotal)} kg · ${fmt(lines.reduce((s,l)=>s+(l.litres??0)*(isRecyclable1(l)?1:0),0),0)} L` : ' ';
+  document.getElementById('kpiPotentialRateSub').textContent = total ? `${fmt(recoverableKg)} kg · ${fmt(recoverableL,0)} L` : ' ';
 
   document.getElementById('kpiAuditCount').textContent = audits.length;
 
@@ -977,7 +979,9 @@ function renderKPIs(lines, audits){
   document.getElementById('kpiCdsSub').textContent=`${fmt(mrIncorrectKg)} kg · ${fmt(mrIncorrectL,0)} L`;
 
   document.getElementById('kpiRecoverable').textContent = gwIncorrect.rate !== null ? fmtPct(gwIncorrect.rate,1) : '—';
-  document.getElementById('kpiRecoverableSub').textContent=`${fmt(sumBy(lines,l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='General Waste'))} kg · ${fmt(lines.filter(l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='General Waste').reduce((s,l)=>s+(l.litres??0),0),0)} L`;
+  const gwIncorrectKg = lines.filter(l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='General Waste').reduce((s,l)=>s+(l.kg??0),0);
+  const gwIncorrectL = lines.filter(l=>incorrectDisposalStatus(l)==='incorrect' && l.stream==='General Waste').reduce((s,l)=>s+(l.litres??0),0);
+  document.getElementById('kpiRecoverableSub').textContent=`${fmt(gwIncorrectKg)} kg · ${fmt(gwIncorrectL,0)} L`;
 }
 
 /* ---------- Material Pathways panel (single view, matrix-based) ---------- */
